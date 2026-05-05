@@ -64,7 +64,8 @@ def batch_ddim_sampling(model, cond, noise_shape, n_samples=1, ddim_steps=50, dd
                                             **kwargs
                                             )
         ## reconstruct from latent to pixel space
-        batch_images = model.decode_first_stage_2DAE(samples)
+        with torch.autocast(device_type="cuda", enabled=False):
+            batch_images = model.decode_first_stage_2DAE(samples)
         batch_variants.append(batch_images)
     ## batch, <samples>, c, t, h, w
     batch_variants = torch.stack(batch_variants, dim=1)
@@ -193,5 +194,19 @@ def save_videos(batch_tensors, savedir, filenames, fps=10):
         grid = (grid + 1.0) / 2.0
         grid = (grid * 255).to(torch.uint8).permute(0, 2, 3, 1)
         savepath = os.path.join(savedir, f"{filenames[idx]}.mp4")
-        torchvision.io.write_video(savepath, grid, fps=fps, video_codec='h264', options={'crf': '10'})
+        #torchvision.io.write_video(savepath, grid, fps=fps, video_codec='h264', options={'crf': '10'})
+        # 【終極影片輸出修正版】
+        import imageio
+        import numpy as np
 
+        # 1. 將 PyTorch Tensor 安全地轉移到 CPU，並變成 numpy 陣列
+        video_data = grid.cpu().numpy()
+
+        # 2. 確保數值型態是標準的 8-bit 像素 (0-255)
+        if video_data.dtype != np.uint8:
+            if video_data.max() <= 1.0:
+                video_data = (video_data * 255).clip(0, 255)
+            video_data = video_data.astype(np.uint8)
+
+        # 3. 呼叫 imageio 寫入 MP4 檔案
+        imageio.mimwrite(savepath, video_data, fps=fps, codec='libx264', macro_block_size=None)

@@ -123,6 +123,7 @@ class CrossAttention(nn.Module):
         count = torch.zeros_like(all_k) ####
         value = torch.zeros_like(all_k)
 
+
         if (sa_flag) and (context_next is not None):
             all_q, all_k, all_v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (all_q, all_k, all_v))
             if context is not None and self.img_cross_attention:
@@ -171,8 +172,30 @@ class CrossAttention(nn.Module):
             tobeprint_list = []
             for t_start, t_end in context_next:
                 weight_sequence = generate_weight_sequence()
+                
+		# ------------------ 終極自適應修正 ------------------
+                ws_list = generate_weight_sequence() # 這是長度為 16 的 list
+                target_len = len(ws_list)
+                ws_tensor = torch.Tensor(ws_list).to(x.device)
+                
                 weight_tensor = torch.ones_like(count[:, t_start:t_end])
-                weight_tensor = weight_tensor * torch.Tensor(weight_sequence).to(x.device).unsqueeze(0).unsqueeze(-1)
+                
+                # 遍歷所有維度，找到大小等於 16 的那一個
+                found_dim = False
+                for d in range(weight_tensor.dim()):
+                    if weight_tensor.size(d) == target_len:
+                        # 構造一個除了目標維度外全是 1 的 shape
+                        final_view = [1] * weight_tensor.dim()
+                        final_view[d] = target_len
+                        
+                        weight_tensor = weight_tensor * ws_tensor.view(*final_view)
+                        found_dim = True
+                        break
+                
+                # 防呆機制：如果真的找不到 16 的維度，就保持全 1 (至少不會崩潰)
+                if not found_dim:
+                    pass 
+                # ---------------------------------------------------
 
                 q = all_q[:, t_start:t_end]
                 k = all_k[:, t_start:t_end]
@@ -194,6 +217,7 @@ class CrossAttention(nn.Module):
 
                 # attention, what we cannot get enough of
                 sim = sim.softmax(dim=-1)
+
                 out = torch.einsum('b i j, b j d -> b i d', sim, v)
                 if self.relative_position:
                     v2 = self.relative_position_v(len_q, len_v)
@@ -262,8 +286,8 @@ class CrossAttention(nn.Module):
                 value[:,t_start:t_end] += out * weight_tensor #
                 count[:,t_start:t_end] += weight_tensor #
 
-            final_out = torch.where(count>0, value/count, value) # (?, frame, ?)
-
+            #final_out = torch.where(count>0, value/count, value) # (?, frame, ?)
+            final_out = value / count.clamp(min=1e-5)
         else:
             # print('cross atten')
             q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (all_q, all_k, all_v))

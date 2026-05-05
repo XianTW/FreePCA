@@ -14,6 +14,10 @@ from funcs import load_model_checkpoint, load_prompts, load_image_batch, get_fil
 from funcs import batch_ddim_sampling
 from utils.utils import instantiate_from_config
 
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
+torch.backends.cudnn.enabled = False
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -46,7 +50,7 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
     #data_config = config.pop("data", OmegaConf.create())
     model_config = config.pop("model", OmegaConf.create())
     model = instantiate_from_config(model_config)
-    model = model.cuda(1)
+    model = model.cuda(0)
     assert os.path.exists(args.ckpt_path), f"Error: checkpoint [{args.ckpt_path}] Not Found!"
     model = load_model_checkpoint(model, args.ckpt_path)
     model.eval()
@@ -93,10 +97,10 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
     n_rounds = n_rounds+1 if len(prompt_list_rank) % args.bs != 0 else n_rounds
     
     # ----------------------Noise Init Begin----------------------------------
-
     x_T_total = torch.randn([args.n_samples, 1, channels, frames, h, w], device=model.device).repeat(1, args.bs, 1, 1, 1, 1)
-    
-    for frame_index in range(16, 64, 16):  # frame_index is 16, 32, 48
+
+    # 【關鍵修正：把寫死的 64 改成變數 frames，讓它可以跑任意幀數的測試】
+    for frame_index in range(16, frames, 16):  
         list_index = list(range(frame_index-16, frame_index))
         random.shuffle(list_index)
         # ------------------Reuse Mean Statistics---------------------------
@@ -105,7 +109,7 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
 
         norm_mean = torch.mean(f_out, dim=3).unsqueeze(3).repeat(1, 1, 1, 16, 1, 1)
         com_mean = torch.mean(a_out, dim=3).unsqueeze(3).repeat(1, 1, 1, 16, 1, 1)
-        com_res = a_out-com_mean  
+        com_res = a_out-com_mean
         x_T_total[:, :, :, frame_index:frame_index + 16] = norm_mean + com_res
     # ----------------------Noise Init End----------------------------------
 
