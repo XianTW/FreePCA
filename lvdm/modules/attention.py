@@ -281,6 +281,31 @@ class CrossAttention(nn.Module):
 
                     out = rearrange(out, '(b d) n -> b n d', d=dim_d)
                 #---------------------FreePCA end---------------------
+
+                # ── Experiment Hooks (Phase A + B) ──
+                import os as _os, sys as _sys
+                _exp_dir = _os.environ.get("EXPERIMENT_DIR", "")
+                if _exp_dir:
+                    _pa_path = _exp_dir + "/phase_a"
+                    if _pa_path not in _sys.path:
+                        _sys.path.insert(0, _pa_path)
+                    try:
+                        from inference_with_hook import record_xfuse as _rfn
+                        _rfn(window_idx=preserve, x_fuse=out)
+                    except Exception:
+                        pass
+                    _er_config = _os.environ.get("ER_CONFIG", "config1")
+                    if _er_config != "config1":
+                        _pb_path = _exp_dir + "/phase_b"
+                        if _pb_path not in _sys.path:
+                            _sys.path.insert(0, _pb_path)
+                        try:
+                            from error_recycling import apply_recycling as _ar
+                            out = _ar(window_idx=preserve, x_fuse=out)
+                        except Exception as _er_e:
+                            print(f"[ER Warning] {_er_e}")
+                # ── End Experiment Hooks ──
+
                 preserve += 1
                 
                 value[:,t_start:t_end] += out * weight_tensor #

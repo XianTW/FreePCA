@@ -147,6 +147,20 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
         ## b,samples,c,t,h,w
         save_videos(batch_samples, args.savedir, filenames, fps=args.savefps)
 
+        # ── Phase A Hook：每個 batch 結束後儲存統計 ──
+        _exp_dir = os.environ.get("EXPERIMENT_DIR", "")
+        if _exp_dir:
+            try:
+                import sys as _sys
+                _pa_path = _exp_dir + "/phase_a"
+                if _pa_path not in _sys.path:
+                    _sys.path.insert(0, _pa_path)
+                from inference_with_hook import finalize_and_save as _fns
+                _prompt_name = prompts[0] if isinstance(prompts, list) else prompts
+                _fns(_prompt_name, _exp_dir + "/phase_a")
+            except Exception as _e:
+                print(f"[Hook] finalize_and_save failed: {_e}")
+
     print(f"Saved in {args.savedir}. Time used: {(time.time() - start):.2f} seconds")
 
 
